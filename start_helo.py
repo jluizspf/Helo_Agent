@@ -6,7 +6,8 @@ from datetime import datetime
 # --- CONFIGURAÇÕES DA CASA DE MÁQUINAS ---
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODELO = "llama3"  # Substitua caso o nome do seu modelo no Ollama seja diferente
-DIARIO_PATH = "/mnt/Paiol/4_Projetos_Python/Helo_Agent/DiarioDeBordo.txt"
+DIARIO_PATH = "/mnt/Paiol/4_Projetos_Python/LembrançaDeHelo/DiarioDeBordo.txt"
+TAREFAS_PATH = "/mnt/Paiol/4_Projetos_Python/LembrançaDeHelo/Tarefas.txt" # NOVA LINHA
 
 # Memória de curto prazo da sessão atual
 historico_sessao = []
@@ -101,28 +102,86 @@ def resumir_e_salvar(historico):
     except Exception as e:
         print(f"\n[Erro Crítico] Falha ao gerar a síntese ou gravar no disco: {e}")
 
+
+# ==========================================
+# MÓDULO 4: GESTÃO DE TAREFAS (To-Do List)
+# ==========================================
+def ler_tarefas():
+    """Lê o arquivo de tarefas e retorna uma lista numerada."""
+    if not os.path.exists(TAREFAS_PATH):
+        return "Nenhuma tarefa pendente no momento."
+
+    try:
+        with open(TAREFAS_PATH, "r", encoding="utf-8") as arquivo:
+            linhas = arquivo.readlines()
+
+        if not linhas:
+            return "Nenhuma tarefa pendente no momento."
+
+        # Formata as linhas em uma lista numerada (Ex: 1. Estudar Python)
+        lista_formatada = ""
+        for i, linha in enumerate(linhas):
+            lista_formatada += f"{i + 1}. {linha.strip()}\n"
+        return lista_formatada.strip()
+    except Exception as e:
+        return f"[Erro de Leitura]: {e}"
+
+
+def adicionar_tarefa(descricao):
+    """Adiciona uma nova linha ao final do arquivo de tarefas."""
+    try:
+        with open(TAREFAS_PATH, "a", encoding="utf-8") as arquivo:
+            arquivo.write(descricao + "\n")
+        return f"Tarefa adicionada: '{descricao}'"
+    except Exception as e:
+        return f"[Erro de Gravação]: {e}"
+
+
+def concluir_tarefa(numero_tarefa):
+    """Remove a tarefa da lista com base no número digitado."""
+    if not os.path.exists(TAREFAS_PATH):
+        return "Arquivo de tarefas não encontrado."
+
+    try:
+        with open(TAREFAS_PATH, "r", encoding="utf-8") as arquivo:
+            linhas = arquivo.readlines()
+
+        if 0 < numero_tarefa <= len(linhas):
+            tarefa_removida = linhas.pop(numero_tarefa - 1).strip()
+
+            # Sobrescreve o arquivo com a lista atualizada
+            with open(TAREFAS_PATH, "w", encoding="utf-8") as arquivo:
+                arquivo.writelines(linhas)
+            return f"Tarefa concluída e removida: '{tarefa_removida}'"
+        else:
+            return f"Tarefa número {numero_tarefa} não encontrada."
+    except Exception as e:
+        return f"[Erro na Remoção]: {e}"
+
 # ==========================================
 # MOTOR PRINCIPAL (Loop de Comunicação)
 # ==========================================
 def main():
     print("Iniciando Sistema de Imediato (Helo)...\n")
 
-    # 1. Prepara o contexto inicial com o passado
+    # 1. Prepara o contexto inicial com o passado e as tarefas pendentes
     contexto_anterior = ler_ultima_sessao()
+    tarefas_pendentes = ler_tarefas()
 
     # 2. Injeta o System Prompt oculto com as regras de alucinação e o contexto
     mensagem_sistema = {
         "role": "system",
         "content": f"""Você é a Helo, a Imediato do servidor Dreadnought.
-        DIRETIVAS RIGOROSAS:
-        DIRETIVAS RIGOROSAS:
-        - Se o usuário solicitar informações que constam no contexto injetado (registros históricos), utilize essas informações para responder com precisão.
-        - Você não tem memória de sessões passadas FORA do que é injetado pelo sistema. Se uma informação NÃO estiver no contexto injetado, aí sim, você deve confessar que não possui o registro.
-        - Não alucine ações de sistema.
+            DIRETIVAS RIGOROSAS:
+            - Utilize o contexto injetado (histórico e tarefas) para responder ao usuário.
+            - Não alucine ações de sistema (como criar ou mover arquivos).
 
-        RESUMO DA ÚLTIMA SESSÃO (Use como ponto de partida):
-        {contexto_anterior}
-        """
+            TAREFAS PENDENTES DO COMANDANTE:
+            {tarefas_pendentes}
+
+            RESUMO DA ÚLTIMA SESSÃO (Use como ponto de partida):
+            {contexto_anterior}
+            """
     }
     historico_sessao.append(mensagem_sistema)
 
@@ -156,9 +215,32 @@ def main():
                 "content": f"O usuário pesquisou nos arquivos do sistema por '{termo}'. Os registros encontrados foram:\n{resultado_busca}\nUse essa informação caso o usuário faça perguntas agora."
             })
             continue  # Pula o envio direto para a IA e aguarda você conversar com ela
+        elif entrada_usuario.startswith("/tarefa add"):
+            nova_tarefa = entrada_usuario.replace("/tarefa add", "").strip()
+            if nova_tarefa:
+                resultado = adicionar_tarefa(nova_tarefa)
+                print(f"[Sistema]: {resultado}")
+            else:
+                print("[Sistema]: Digite a tarefa. Ex: /tarefa add Estudar pandas")
+            continue
+
+        elif entrada_usuario.strip() == "/tarefa listar":
+            print(f"\n[Tarefas Pendentes]:\n{ler_tarefas()}\n")
+            continue
+
+        elif entrada_usuario.startswith("/tarefa concluir"):
+            try:
+                # Extrai o número que o usuário digitou
+                num = int(entrada_usuario.replace("/tarefa concluir", "").strip())
+                resultado = concluir_tarefa(num)
+                print(f"[Sistema]: {resultado}")
+            except ValueError:
+                print("[Sistema]: Digite o número da tarefa. Ex: /tarefa concluir 1")
+            continue
 
         # Adiciona a fala do usuário ao histórico da sessão
         historico_sessao.append({"role": "user", "content": entrada_usuario})
+
 
         # AQUI ENTRARÁ A LÓGICA DE CHAMADA DA API DO OLLAMA
         # Monta o pacote de dados (Payload) no padrão que a API do Ollama exige
