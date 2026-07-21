@@ -1,6 +1,7 @@
 import requests
 import json
 import os
+import psutil # NOVO IMPORT
 from datetime import datetime
 
 # --- CONFIGURAÇÕES DA CASA DE MÁQUINAS ---
@@ -159,6 +160,29 @@ def concluir_tarefa(numero_tarefa):
         return f"[Erro na Remoção]: {e}"
 
 # ==========================================
+# MÓDULO 5: TELEMETRIA DO SISTEMA
+# ==========================================
+def ler_sensores_sistema():
+    """Coleta dados reais de CPU e RAM do hardware hospedeiro."""
+    try:
+        # interval=1 faz o script pausar por 1 seg para calcular a média de uso real da CPU
+        uso_cpu = psutil.cpu_percent(interval=1)
+
+        # Extrai os dados da RAM (vêm em bytes, convertemos para GB)
+        memoria = psutil.virtual_memory()
+        uso_ram_percent = memoria.percent
+        ram_total_gb = memoria.total / (1024 ** 3)
+        ram_usada_gb = memoria.used / (1024 ** 3)
+
+        relatorio = (
+            f"- Uso de CPU: {uso_cpu}%\n"
+            f"- Uso de RAM: {uso_ram_percent}% ({ram_usada_gb:.2f} GB de {ram_total_gb:.2f} GB)"
+        )
+        return relatorio
+    except Exception as e:
+        return f"[Erro na Leitura dos Sensores]: {e}"
+
+# ==========================================
 # MOTOR PRINCIPAL (Loop de Comunicação)
 # ==========================================
 def main():
@@ -215,6 +239,7 @@ def main():
                 "content": f"O usuário pesquisou nos arquivos do sistema por '{termo}'. Os registros encontrados foram:\n{resultado_busca}\nUse essa informação caso o usuário faça perguntas agora."
             })
             continue  # Pula o envio direto para a IA e aguarda você conversar com ela
+
         elif entrada_usuario.startswith("/tarefa add"):
             nova_tarefa = entrada_usuario.replace("/tarefa add", "").strip()
             if nova_tarefa:
@@ -237,6 +262,18 @@ def main():
             except ValueError:
                 print("[Sistema]: Digite o número da tarefa. Ex: /tarefa concluir 1")
             continue
+
+        elif entrada_usuario.strip() == "/status":
+            print("\n[Sistema] Lendo sensores do núcleo do Dreadnought. Aguarde 1 segundo...")
+            dados_sensores = ler_sensores_sistema()
+
+            # Substituímos o "/status" por um prompt formatado com os dados reais
+            entrada_usuario = (
+                f"Comandante solicita relatório de status. "
+                f"Analise os seguintes dados reais do servidor agora e responda de forma técnica e imersiva como a Imediato do Dreadnought:\n{dados_sensores}"
+            )
+            # Não usamos 'continue' aqui!
+            # Deixamos o fluxo descer. O Python vai adicionar essa frase ao histórico e chamar a API normalmente.
 
         # Adiciona a fala do usuário ao histórico da sessão
         historico_sessao.append({"role": "user", "content": entrada_usuario})
